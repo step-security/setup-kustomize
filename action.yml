@@ -1,0 +1,22 @@
+name: 'Setup Kustomize'
+description: 'Setup a Kustomize environment and add it to the path'
+author: 'step-security'
+branding:
+  icon: edit
+  color: purple
+inputs:
+  kustomize-version:
+    description: 'Version Spec of the version to use.  Examples: 10.x, 10.15.1, >=10.15.0'
+    required: false
+    default: '*'
+  github-token:
+    description: 'Token for the repository. Can be passed in using `{{ secrets.GITHUB_TOKEN }}`.'
+    required: false
+    default: ${{ github.token }}
+  fail-fast:
+    description: 'Fail quickly on github rate limit. "false" or "true".'
+    required: false
+    default: 'true'
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
