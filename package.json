@@ -1,6 +1,6 @@
 {
   "name": "setup-kustomize",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "private": true,
   "description": "Github action to setup-kustomize",
   "main": "lib/main.js",
@@ -27,13 +27,13 @@
   "dependencies": {
     "@actions/core": "^1.2.6",
     "@actions/github": "^6.0.0",
-    "@actions/io": "^1.1.1",
     "@actions/tool-cache": "^2.0.1",
     "@octokit/plugin-throttling": "^8.0.1",
     "axios": "^1.20.0",
     "semver": "^7.6.0"
   },
   "devDependencies": {
+    "@actions/io": "^1.1.1",
     "@types/jest": "^29.5.6",
     "@types/node": "^24.12.0",
     "@types/semver": "^7.5.8",

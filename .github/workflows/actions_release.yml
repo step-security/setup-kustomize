@@ -10,6 +10,10 @@ on:
         description: "Script to run for building the action"
         required: false
         default: "npm run all"
+      node_version:
+        description: "Node.js version to use"
+        required: false
+        default: "24"
 
 permissions:
   contents: read
@@ -25,3 +29,4 @@ jobs:
     with:
       tag: "${{ github.event.inputs.tag }}"
       script: ${{ inputs.script || 'npm run all' }}
+      node_version: ${{ inputs.node_version || '24' }}
