@@ -245,7 +245,8 @@ function verifyChecksum(filePath, filename, checksumUrl) {
         const content = fs.readFileSync(checksumPath, 'utf-8');
         const expectedHash = parseChecksums(content).get(filename);
         if (!expectedHash) {
-            throw new Error(`No checksum found for ${filename}`);
+            core.warning(`No checksum found for ${filename}, skipping verification`);
+            return;
         }
         const actualHash = crypto
             .createHash('sha256')

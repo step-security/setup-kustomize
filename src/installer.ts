@@ -253,7 +253,8 @@ async function verifyChecksum(
   const expectedHash = parseChecksums(content).get(filename)
 
   if (!expectedHash) {
-    throw new Error(`No checksum found for ${filename}`)
+    core.warning(`No checksum found for ${filename}, skipping verification`)
+    return
   }
 
   const actualHash = crypto
