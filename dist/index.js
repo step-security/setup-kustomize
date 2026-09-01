@@ -51,6 +51,7 @@ const utils_1 = __nccwpck_require__(3030);
 const plugin_throttling_1 = __nccwpck_require__(9968);
 const core = __importStar(__nccwpck_require__(2186));
 const cache = __importStar(__nccwpck_require__(7784));
+const crypto = __importStar(__nccwpck_require__(6113));
 const path = __importStar(__nccwpck_require__(1017));
 const semver = __importStar(__nccwpck_require__(1383));
 const fs = __importStar(__nccwpck_require__(7147));
@@ -138,10 +139,12 @@ function getPinnedVersion(targetVersion) {
             if (matchingAsset) {
                 const kustomizeVersion = (versionRegex.exec(release.tag_name) || []).shift();
                 if (kustomizeVersion != null) {
+                    const checksumAsset = release.assets.find(asset => asset.name === 'checksums.txt');
                     return {
                         target: targetVersion,
                         resolved: kustomizeVersion,
-                        url: matchingAsset.browser_download_url
+                        url: matchingAsset.browser_download_url,
+                        checksumUrl: checksumAsset === null || checksumAsset === void 0 ? void 0 : checksumAsset.browser_download_url
                     };
                 }
                 else {
@@ -178,7 +181,11 @@ function getMaxSatisfyingVersion(targetVersion) {
                     if (matchingAsset) {
                         const kustomizeVersion = (versionRegex.exec(release.tag_name) || []).shift();
                         if (kustomizeVersion != null) {
-                            availableVersions.set(kustomizeVersion, matchingAsset.browser_download_url);
+                            const checksumAsset = release.assets.find(asset => asset.name === 'checksums.txt');
+                            availableVersions.set(kustomizeVersion, {
+                                url: matchingAsset.browser_download_url,
+                                checksumUrl: checksumAsset === null || checksumAsset === void 0 ? void 0 : checksumAsset.browser_download_url
+                            });
                         }
                     }
                 }
@@ -196,8 +203,8 @@ function getMaxSatisfyingVersion(targetVersion) {
             throw new Error(`Could not satisfy version '${version.target}': Could not find asset for platform '${platform}' and
       ${arch}'.`);
         }
-        const url = availableVersions.get(resolved);
-        return Object.assign(Object.assign({}, version), { resolved, url });
+        const { url, checksumUrl } = availableVersions.get(resolved);
+        return Object.assign(Object.assign({}, version), { resolved, url, checksumUrl });
     });
 }
 function acquireVersion(version) {
@@ -209,6 +216,9 @@ function acquireVersion(version) {
         }
         catch (err) {
             throw new Error(`Failed to download version ${version.target}: ${err}`);
+        }
+        if (version.checksumUrl) {
+            yield verifyChecksum(toolPath, path.basename(version.url), version.checksumUrl);
         }
         if (version.url.endsWith('.tar.gz')) {
             toolPath = yield cache.extractTar(toolPath);
@@ -222,6 +232,40 @@ function acquireVersion(version) {
         }
         return yield cache.cacheFile(toolPath, toolFilename, toolName, version.target);
     });
+}
+function verifyChecksum(filePath, filename, checksumUrl) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let checksumPath;
+        try {
+            checksumPath = yield cache.downloadTool(checksumUrl);
+        }
+        catch (err) {
+            throw new Error(`Failed to download checksums: ${err}`);
+        }
+        const content = fs.readFileSync(checksumPath, 'utf-8');
+        const expectedHash = parseChecksums(content).get(filename);
+        if (!expectedHash) {
+            throw new Error(`No checksum found for ${filename}`);
+        }
+        const actualHash = crypto
+            .createHash('sha256')
+            .update(fs.readFileSync(filePath))
+            .digest('hex');
+        if (actualHash !== expectedHash) {
+            throw new Error(`Checksum mismatch for ${filename}: expected ${expectedHash}, got ${actualHash}`);
+        }
+        core.debug(`Checksum verified for ${filename}`);
+    });
+}
+function parseChecksums(content) {
+    const map = new Map();
+    for (const line of content.trim().split('\n')) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length === 2) {
+            map.set(parts[1], parts[0]);
+        }
+    }
+    return map;
 }
 
 

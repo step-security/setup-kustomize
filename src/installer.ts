@@ -3,6 +3,7 @@ import {OctokitOptions} from '@octokit/core/dist-types/types.d'
 import {throttling} from '@octokit/plugin-throttling'
 import * as core from '@actions/core'
 import * as cache from '@actions/tool-cache'
+import * as crypto from 'crypto'
 import * as path from 'path'
 import * as semver from 'semver'
 import * as fs from 'fs'
@@ -83,6 +84,7 @@ interface Version {
   resolved: string
   target: string
   url: string
+  checksumUrl: string | undefined
 }
 
 async function getPinnedVersion(targetVersion: string): Promise<Version> {
@@ -114,10 +116,14 @@ async function getPinnedVersion(targetVersion: string): Promise<Version> {
       ).shift()
 
       if (kustomizeVersion != null) {
+        const checksumAsset = release.assets.find(
+          asset => asset.name === 'checksums.txt'
+        )
         return {
           target: targetVersion,
           resolved: kustomizeVersion,
-          url: matchingAsset.browser_download_url
+          url: matchingAsset.browser_download_url,
+          checksumUrl: checksumAsset?.browser_download_url
         }
       } else {
         throw new Error(
@@ -138,7 +144,10 @@ async function getMaxSatisfyingVersion(
   targetVersion: string
 ): Promise<Version> {
   const version = {target: targetVersion}
-  const availableVersions: Map<string, string> = new Map()
+  const availableVersions: Map<
+    string,
+    {url: string; checksumUrl: string | undefined}
+  > = new Map()
 
   for await (const response of octokit.paginate.iterator(
     octokit.rest.repos.listReleases,
@@ -162,10 +171,13 @@ async function getMaxSatisfyingVersion(
         ).shift()
 
         if (kustomizeVersion != null) {
-          availableVersions.set(
-            kustomizeVersion,
-            matchingAsset.browser_download_url
+          const checksumAsset = release.assets.find(
+            asset => asset.name === 'checksums.txt'
           )
+          availableVersions.set(kustomizeVersion, {
+            url: matchingAsset.browser_download_url,
+            checksumUrl: checksumAsset?.browser_download_url
+          })
         }
       }
     }
@@ -183,9 +195,12 @@ async function getMaxSatisfyingVersion(
     )
   }
 
-  const url = availableVersions.get(resolved) as string
+  const {url, checksumUrl} = availableVersions.get(resolved) as {
+    url: string
+    checksumUrl: string | undefined
+  }
 
-  return {...version, resolved, url}
+  return {...version, resolved, url, checksumUrl}
 }
 
 async function acquireVersion(version: Version): Promise<string> {
@@ -197,6 +212,14 @@ async function acquireVersion(version: Version): Promise<string> {
     toolPath = await cache.downloadTool(version.url)
   } catch (err) {
     throw new Error(`Failed to download version ${version.target}: ${err}`)
+  }
+
+  if (version.checksumUrl) {
+    await verifyChecksum(
+      toolPath,
+      path.basename(version.url),
+      version.checksumUrl
+    )
   }
 
   if (version.url.endsWith('.tar.gz')) {
@@ -212,4 +235,48 @@ async function acquireVersion(version: Version): Promise<string> {
   }
 
   return await cache.cacheFile(toolPath, toolFilename, toolName, version.target)
+}
+
+async function verifyChecksum(
+  filePath: string,
+  filename: string,
+  checksumUrl: string
+): Promise<void> {
+  let checksumPath: string
+  try {
+    checksumPath = await cache.downloadTool(checksumUrl)
+  } catch (err) {
+    throw new Error(`Failed to download checksums: ${err}`)
+  }
+
+  const content = fs.readFileSync(checksumPath, 'utf-8')
+  const expectedHash = parseChecksums(content).get(filename)
+
+  if (!expectedHash) {
+    throw new Error(`No checksum found for ${filename}`)
+  }
+
+  const actualHash = crypto
+    .createHash('sha256')
+    .update(fs.readFileSync(filePath))
+    .digest('hex')
+
+  if (actualHash !== expectedHash) {
+    throw new Error(
+      `Checksum mismatch for ${filename}: expected ${expectedHash}, got ${actualHash}`
+    )
+  }
+
+  core.debug(`Checksum verified for ${filename}`)
+}
+
+function parseChecksums(content: string): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const line of content.trim().split('\n')) {
+    const parts = line.trim().split(/\s+/)
+    if (parts.length === 2) {
+      map.set(parts[1], parts[0])
+    }
+  }
+  return map
 }
